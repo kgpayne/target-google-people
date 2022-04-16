@@ -19,10 +19,10 @@ SCOPES = [
 
 class GooglePeopleService:
 
-    def __init__(self, client_secrets_path=None, token_path=None):
+    def __init__(self, client_secret_path=None, token_path=None):
         self.client_secrets_path = (
-            Path(client_secrets_path) if client_secrets_path
-            else Path("client_secrets.json").resolve()
+            Path(client_secret_path) if client_secret_path
+            else Path("client_secret.json").resolve()
         )
         self.token_path = (
             Path(token_path) if token_path
@@ -121,7 +121,9 @@ class GooglePeopleService:
                     f"Contact Group called '{name}' does not exist."
                 )
 
-    def create_contact(self, first_name, last_name, email_address, contact_group_name=None):
+    def create_contact(
+        self, first_name, last_name, email_address, contact_group_name=None
+    ):
         contact_group = self.get_contact_group(name=contact_group_name)
         if not contact_group:
             contact_group = self.create_contact_group(name=contact_group_name)
@@ -155,7 +157,7 @@ class GooglePeopleService:
             self.service.people().connections()
             .list(
                 resourceName="people/me",
-                personFields="names,addresses,memberships"
+                personFields="names,emailAddresses,memberships"
             )
         )
         response = request.execute()
@@ -171,3 +173,98 @@ class GooglePeopleService:
             response = request.execute()
             contacts.extend(response.get("connections", []))
         return contacts
+
+    def get_contact(
+        self, resource_name=None, first_name=None, last_name=None, email_address=None
+    ):
+        if resource_name:
+            return (
+                self.service.people()
+                .get(
+                    resourceName=resource_name,
+                    personFields="names,emailAddresses,memberships"
+                )
+                .execute()
+            )
+        else:
+            contacts = self.list_contacts()
+            for contact in contacts:
+                first_name_match = (
+                    first_name == contact.get("names", [{"givenName": None}])[0]["givenName"]
+                )
+                last_name_match = (
+                    last_name == contact.get("names", [{"familyName": None}])[0]["familyName"]
+                )
+                email_address_match = (
+                    email_address == contact.get("emailAddresses", [{"value": None}])[0]["value"]
+                )
+                if (
+                    first_name_match
+                    and last_name_match
+                    and email_address_match
+                ):
+                    return contact
+        return None
+
+    def delete_contact(
+        self, resource_name=None, first_name=None,
+        last_name=None, email_address=None
+    ):
+        if not resource_name:
+            contact = self.get_contact(
+                first_name=first_name, last_name=last_name, email_address=email_address
+            )
+            if contact:
+                resource_name = contact["resourceName"]
+            else:
+                raise KeyError(
+                    f"Contact '{first_name} {last_name}' not found."
+                )
+        return self.service.people().deleteContact(
+            resourceName=resource_name
+        ).execute()
+
+
+    def upsert_contact(
+        self, first_name, last_name, email_address, contact_group_name=None
+    ):
+        """Update contact if already exists, otherwise create."""
+        contact = self.get_contact(
+            first_name=first_name, last_name=last_name,
+            email_address=email_address
+        )
+        if contact:
+            # Update
+            contact_group = self.get_contact_group(name=contact_group_name)
+            if not contact_group:
+                contact_group = self.create_contact_group(name=contact_group_name)
+            resource_name = contact_group.get("resourceName")
+            contact["memberships"] = [
+                {
+                    "contactGroupMembership": {
+                        "contactGroupResourceName": resource_name
+                    }
+                },
+                {
+                    "contactGroupMembership": {
+                        "contactGroupResourceName": "contactGroups/myContacts"
+                    }
+                }
+            ]
+            response = (
+                self.service.people()
+                .updateContact(
+                    resourceName=contact["resourceName"],
+                    updatePersonFields="memberships",
+                    body=contact
+                )
+                .execute()
+            )
+            return response
+        else:
+            # Create
+            return self.create_contact(
+                first_name=first_name, last_name=last_name,
+                email_address=email_address,
+                contact_group_name=contact_group_name
+            )

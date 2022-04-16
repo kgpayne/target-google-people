@@ -14,14 +14,14 @@ class TargetGooglePeople(Target):
     name = "target-google-people"
     config_jsonschema = th.PropertiesList(
         th.Property(
-            "filepath",
+            "client_secret_path",
             th.StringType,
-            description="The path to the target output file"
+            description="The path to the Google client_secret.json file."
         ),
         th.Property(
-            "file_naming_scheme",
+            "token_path",
             th.StringType,
-            description="The scheme with which output files will be named"
+            description="The path to store the generated token.json auth file."
         ),
     ).to_dict()
     default_sink_class = GooglePeopleSink
